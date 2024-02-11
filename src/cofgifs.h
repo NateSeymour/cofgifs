@@ -48,15 +48,6 @@ struct __attribute__((packed)) cgif_rgb
     uint8_t blue;
 };
 
-struct __attribute__((packed)) cgif_render_rgb
-{
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
-
-    uint8_t _pad;
-};
-
 struct __attribute__((packed)) cgif_image_descriptor
 {
     uint8_t seperator;
@@ -93,7 +84,7 @@ struct cgif
 };
 
 cgif_error_t cgif_init(struct cgif *self, char const *data, char *scratch, size_t scratch_size);
-cgif_error_t cgif_render_next(struct cgif *self, struct cgif_render_rgb *buffer, size_t buffer_size);
+cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t buffer_size);
 
 inline bool cgif_gct_enable(struct cgif *self);
 inline uint8_t cgif_gct_resolution(struct cgif *self);

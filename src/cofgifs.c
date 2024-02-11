@@ -41,10 +41,11 @@ cgif_error_t cgif_init(struct cgif *self, char const *data, char *scratch, size_
     return CGIF_SUCCESS;
 }
 
-cgif_error_t cgif_render_next(struct cgif *self, struct cgif_render_rgb *buffer, size_t buffer_size)
+cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t buffer_size)
 {
     struct cgif_image_descriptor *id = NULL;
-    struct cgif_rgb *lct = NULL;
+    struct cgif_rgb const *color_table = NULL;
+    uint8_t color_table_count = 0;
 
     switch(*self->cursor) {
         case '!': {
@@ -67,8 +68,12 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_render_rgb *buffer,
     }
 
     if(cgif_id_lct_enable(id)) {
-        lct = (void*)self->cursor;
-        self->cursor += cgif_id_lct_size(id);
+        color_table = (void*)self->cursor;
+        color_table_count = cgif_id_lct_count(id);
+        self->cursor += color_table_count;
+    } else {
+        color_table = self->gct;
+        color_table_count = cgif_gct_count(self);
     }
 
     // START THE DECOMPRESSION PROCESS WOOOO!
@@ -76,14 +81,50 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_render_rgb *buffer,
     self->cursor++;
 
     struct cgif_dict_entry *dictionary = (struct cgif_dict_entry *)self->scratch;
-    int dictionary_count = 0;
+    uint8_t dictionary_count = 0;
 
     uint8_t block_size = *self->cursor;
     char const *block_base = ++self->cursor;
+    uint8_t bit_index = 0;
+    uint16_t chunk = *(uint16_t*)self->cursor;
+    uint8_t output_index = 0;
+    uint8_t previous_output_index = 0;
     while((void*)self->cursor - (void*)block_base < block_size) {
-        self->cursor++;
+        int8_t overflow = bit_index + code_size - 8;
+        if(overflow > 0) {
+            chunk <<= overflow;
+            ((uint8_t*)&chunk)[1] = *++self->cursor;
+            chunk <<= bit_index - overflow;
+            bit_index = 0;
+        }
 
-        uint16_t chunk = *(uint16_t*)self->cursor;
+        uint16_t code = (chunk << bit_index) >> (16 - code_size);
+        bit_index += code_size;
+
+        // Code is in color table
+        uint8_t output_size = 0;
+        if(code <= color_table_count) {
+            memcpy(&buffer[output_index], &color_table[code], sizeof(struct cgif_rgb));
+            output_size = 1;
+        } else { // Code is in the dictionary
+            code -= 2;
+
+            memcpy(&buffer[dictionary[code].index], &buffer[output_index], dictionary[code].size);
+            output_size = dictionary[code].size;
+        }
+
+        if(output_index > 0) {
+            dictionary[dictionary_count].index = previous_output_index;
+            dictionary[dictionary_count].size = output_index - previous_output_index + 1;
+            dictionary_count++;
+
+            if((dictionary_count << (8 - code_size)) >> (8 - code_size) != dictionary_count) {
+                code_size++;
+            }
+        }
+
+        previous_output_index = output_index;
+        output_index += output_size;
     }
 
     return CGIF_SUCCESS;
