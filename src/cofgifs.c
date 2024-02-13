@@ -77,8 +77,10 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
     }
 
     // START THE DECOMPRESSION PROCESS WOOOO!
-    uint8_t code_size = *self->cursor;
+    uint8_t min_code_size = *self->cursor;
     self->cursor++;
+
+    uint8_t code_size = min_code_size + 1;
 
     struct cgif_dict_entry *dictionary = (struct cgif_dict_entry *)self->scratch;
     uint8_t dictionary_count = 0;
@@ -89,37 +91,49 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
     uint16_t chunk = *(uint16_t*)self->cursor;
     uint8_t output_index = 0;
     uint8_t previous_output_index = 0;
+    uint16_t bitmask = (uint16_t)-1 >> (16 - code_size);
+    uint8_t clear_code = 1 << min_code_size;
+    uint8_t stop_code = clear_code + 1;
     while((void*)self->cursor - (void*)block_base < block_size) {
-        int8_t overflow = bit_index + code_size - 8;
-        if(overflow > 0) {
-            chunk <<= overflow;
-            ((uint8_t*)&chunk)[1] = *++self->cursor;
-            chunk <<= bit_index - overflow;
+        int8_t bits_remaining = 16 - bit_index;
+        if(bits_remaining < code_size) {
+            uint16_t next_chunk = *(uint16_t*)++self->cursor;
+            chunk |= next_chunk << bit_index;
             bit_index = 0;
         }
 
-        uint16_t code = (chunk << bit_index) >> (16 - code_size);
+        uint16_t code = chunk & bitmask;
+
+        // Discard read bits
+        chunk >>= code_size;
         bit_index += code_size;
 
         // Code is in color table
         uint8_t output_size = 0;
-        if(code <= color_table_count) {
+        if(code == clear_code) {
+            dictionary_count = 0;
+        } else if(code == stop_code) {
+            break;
+        } else if(code <= color_table_count) { // Code in color table
             memcpy(&buffer[output_index], &color_table[code], sizeof(struct cgif_rgb));
             output_size = 1;
-        } else { // Code is in the dictionary
-            code -= 2;
+        } else {
+            code -= stop_code + 1;
 
-            memcpy(&buffer[dictionary[code].index], &buffer[output_index], dictionary[code].size);
-            output_size = dictionary[code].size;
+            if(code < dictionary_count) { // Code is in dictionary
+                memcpy(&buffer[dictionary[code].index], &buffer[output_index], sizeof(struct cgif_rgb) * dictionary[code].count);
+                output_size = dictionary[code].count;
+            }
         }
 
         if(output_index > 0) {
             dictionary[dictionary_count].index = previous_output_index;
-            dictionary[dictionary_count].size = output_index - previous_output_index + 1;
+            dictionary[dictionary_count].count = output_index - previous_output_index + 1;
             dictionary_count++;
 
-            if((dictionary_count << (8 - code_size)) >> (8 - code_size) != dictionary_count) {
+            if(stop_code + dictionary_count + 1 > bitmask) {
                 code_size++;
+                bitmask = (uint16_t)-1 >> (16 - code_size);
             }
         }
 

@@ -41,10 +41,10 @@ int main()
     for(int y = 0; y < gif.lsd->dimension.height; y++) {
         for(int x = 0; x < gif.lsd->dimension.width; x++) {
             struct cgif_rgb pixel = render_buffer[x * y];
-            if(pixel.red || pixel.green || pixel.blue) {
-                printf(" X ");
-            } else {
+            if(pixel.red == 255 && pixel.green == 255 && pixel.blue == 255) {
                 printf("   ");
+            } else {
+                printf(" X ");
             }
         }
 
