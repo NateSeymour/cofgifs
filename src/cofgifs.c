@@ -95,23 +95,35 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
     uint8_t clear_code = 1 << min_code_size;
     uint8_t stop_code = clear_code + 1;
     while((void*)self->cursor - (void*)block_base < block_size) {
+        /*
+         * Expand the chunk if empty
+         */
         int8_t bits_remaining = 16 - bit_index;
         if(bits_remaining < code_size) {
             uint16_t next_chunk = *(uint16_t*)++self->cursor;
-            chunk |= next_chunk << bit_index;
+            chunk |= (next_chunk << bits_remaining);
             bit_index = 0;
         }
 
+        /*
+         * Read Code
+         */
         uint16_t code = chunk & bitmask;
 
-        // Discard read bits
+        /*
+         * Discard used bits
+         */
         chunk >>= code_size;
         bit_index += code_size;
 
-        // Code is in color table
+        /*
+         * Decode incoming code
+         */
         uint8_t output_size = 0;
         if(code == clear_code) {
             dictionary_count = 0;
+            code_size = min_code_size + 1;
+            continue;
         } else if(code == stop_code) {
             break;
         } else if(code <= color_table_count) { // Code in color table
@@ -120,22 +132,28 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
         } else {
             code -= stop_code + 1;
 
-            if(code < dictionary_count) { // Code is in dictionary
-                memcpy(&buffer[dictionary[code].index], &buffer[output_index], sizeof(struct cgif_rgb) * dictionary[code].count);
-                output_size = dictionary[code].count;
+            /*
+             * Preempted dictionary entry
+             */
+            if(dictionary_count - code == 1) {
+                memcpy(&buffer[output_index], &buffer[previous_output_index], sizeof(struct cgif_rgb));
             }
+
+            memcpy(&buffer[output_index], &buffer[dictionary[code].index], sizeof(struct cgif_rgb) * dictionary[code].count);
+            output_size = dictionary[code].count;
         }
 
-        if(output_index > 0) {
-            dictionary[dictionary_count].index = previous_output_index;
-            dictionary[dictionary_count].count = output_index - previous_output_index + 1;
-            dictionary_count++;
-
-            if(stop_code + dictionary_count + 1 > bitmask) {
-                code_size++;
-                bitmask = (uint16_t)-1 >> (16 - code_size);
-            }
+        /*
+         * Make dictionary entry
+         */
+        if(stop_code + dictionary_count + 1 > bitmask) {
+            code_size++;
+            bitmask = (uint16_t)-1 >> (16 - code_size);
         }
+
+        dictionary[dictionary_count].index = output_index;
+        dictionary[dictionary_count].count = output_size + 1;
+        dictionary_count++;
 
         previous_output_index = output_index;
         output_index += output_size;
