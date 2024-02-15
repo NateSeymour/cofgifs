@@ -62,8 +62,8 @@ struct __attribute__((packed)) cgif_image_descriptor
 
 struct __attribute__((packed)) cgif_dict_entry
 {
-    uint8_t count;
-    uint8_t index;
+    uint16_t count;
+    uint16_t index;
 };
 
 struct cgif

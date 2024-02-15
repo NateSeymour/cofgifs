@@ -6,7 +6,7 @@
 
 char *get_file_data()
 {
-    FILE* file = fopen("test.gif", "r");
+    FILE* file = fopen("test-2.gif", "r");
 
     // Get file size
     fseek(file, 0, SEEK_END);
@@ -40,7 +40,7 @@ int main()
 
     for(int y = 0; y < gif.lsd->dimension.height; y++) {
         for(int x = 0; x < gif.lsd->dimension.width; x++) {
-            struct cgif_rgb pixel = render_buffer[x * y];
+            struct cgif_rgb pixel = render_buffer[(y * gif.lsd->dimension.width) + x];
             if(pixel.red == 255 && pixel.green == 255 && pixel.blue == 255) {
                 printf("   ");
             } else {

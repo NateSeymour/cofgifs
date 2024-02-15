@@ -83,26 +83,26 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
     uint8_t code_size = min_code_size + 1;
 
     struct cgif_dict_entry *dictionary = (struct cgif_dict_entry *)self->scratch;
-    uint8_t dictionary_count = 0;
+    unsigned int dictionary_count = 0;
 
     uint8_t block_size = *self->cursor;
     char const *block_base = ++self->cursor;
-    uint8_t bit_index = 0;
-    uint16_t chunk = *(uint16_t*)self->cursor;
-    uint8_t output_index = 0;
-    uint8_t previous_output_index = 0;
-    uint16_t bitmask = (uint16_t)-1 >> (16 - code_size);
+    uint32_t chunk = *(uint16_t*)self->cursor;
+    uint8_t bits_remaining = 16;
+    unsigned int output_index = 0;
+    unsigned int previous_output_index = 0;
+    uint32_t bitmask = (uint32_t)-1 >> (32 - code_size);
     uint8_t clear_code = 1 << min_code_size;
     uint8_t stop_code = clear_code + 1;
     while((void*)self->cursor - (void*)block_base < block_size) {
         /*
          * Expand the chunk if empty
          */
-        int8_t bits_remaining = 16 - bit_index;
         if(bits_remaining < code_size) {
-            uint16_t next_chunk = *(uint16_t*)++self->cursor;
-            chunk |= (next_chunk << bits_remaining);
-            bit_index = 0;
+            self->cursor += 2;
+            uint16_t next_chunk = *(uint16_t*)self->cursor;
+            chunk |= (((uint32_t)next_chunk) << bits_remaining);
+            bits_remaining += 16;
         }
 
         /*
@@ -114,7 +114,7 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
          * Discard used bits
          */
         chunk >>= code_size;
-        bit_index += code_size;
+        bits_remaining -= code_size;
 
         /*
          * Decode incoming code
@@ -123,6 +123,7 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
         if(code == clear_code) {
             dictionary_count = 0;
             code_size = min_code_size + 1;
+            bitmask = (uint32_t)-1 >> (32 - code_size);
             continue;
         } else if(code == stop_code) {
             break;
@@ -148,7 +149,7 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
          */
         if(stop_code + dictionary_count + 1 > bitmask) {
             code_size++;
-            bitmask = (uint16_t)-1 >> (16 - code_size);
+            bitmask = (uint32_t)-1 >> (32 - code_size);
         }
 
         dictionary[dictionary_count].index = output_index;
