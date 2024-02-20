@@ -13,7 +13,9 @@ A gif decoder library made for embedded devices.
 ## Memory Usage
 
 Reduction of memory usage to the minimum while retaining performance is the main focus of this project. The ``cgif`` 
-structure itself only consumes 56 bytes of memory, mostly pointers to specific areas of the GIF data itself.
+structure itself only consumes 28 (32-bit addressing) or 56 (64-bit addressing) bytes of memory, mostly pointers to 
+specific areas of the 
+GIF data itself.
 
 The render buffer is an array of 4 bytes per pixel. The extra byte is empty to help retain alignment of the pixels 
 in memory for efficient access by the rendering code. 
