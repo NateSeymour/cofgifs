@@ -15,6 +15,11 @@ typedef enum {
     CGIF_ERROR_NOEXT,
 } cgif_error_t;
 
+typedef enum {
+    CGIF_EXT_GRAPHIC_CONTROL = 0xF9,
+    CGIF_EXT_COMMENT = 0xFE,
+} cgif_extmagic_t;
+
 struct __attribute__((packed)) cgif_coordinate
 {
     uint8_t x;
