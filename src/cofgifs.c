@@ -2,7 +2,7 @@
 
 #include "cofgifs.h"
 
-cgif_error_t cgif_init(struct cgif *self, char const *data, char *scratch, size_t scratch_size)
+cgif_error_t cgif_init(struct cgif *self, char const *data, struct cgif_dict_entry *dictionary, size_t dict_size)
 {
     // Base
     self->base = data;
@@ -27,25 +27,28 @@ cgif_error_t cgif_init(struct cgif *self, char const *data, char *scratch, size_
     }
 
     // Scratch
-    self->scratch = scratch;
-    self->scratch_size = scratch_size;
+    self->dictionary = dictionary;
+    self->dict_size = dict_size;
 
-    if(self->scratch == NULL) {
-        return CGIF_ERROR_NOBUF;
+    if(self->dictionary == NULL) {
+        return CGIF_ERROR_NODICT;
     }
 
-    if(cgif_gct_enable(self) && scratch_size < cgif_gct_size(self) * 2) {
-        return CGIF_ERROR_BUFSIZE;
+    if(self->dict_size < CGIF_DICT_COUNT_MAX(self->lsd->dimension.width, self->lsd->dimension.height) * sizeof(struct cgif_dict_entry)) {
+        return CGIF_ERROR_DICTSIZE;
     }
 
     return CGIF_SUCCESS;
 }
 
-cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t buffer_size)
+cgif_error_t cgif_render_next(struct cgif *self, struct cgif_render_rgb *buffer, size_t buffer_size)
 {
+    if(buffer_size < sizeof(struct cgif_render_rgb) * self->lsd->dimension.height * self->lsd->dimension.width) {
+        return CGIF_ERROR_BUFSIZE;
+    }
+
     struct cgif_image_descriptor *id = NULL;
     struct cgif_rgb const *color_table = NULL;
-    uint8_t color_table_count = 0;
 
     switch(*self->cursor) {
         case '!': {
@@ -67,6 +70,9 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
         }
     }
 
+    // Get color table size
+    uint8_t color_table_count = 0;
+
     if(cgif_id_lct_enable(id)) {
         color_table = (void*)self->cursor;
         color_table_count = cgif_id_lct_count(id);
@@ -77,84 +83,73 @@ cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t
     }
 
     // START THE DECOMPRESSION PROCESS WOOOO!
-    uint8_t min_code_size = *self->cursor;
-    self->cursor++;
+    uint8_t min_code_size = *self->cursor++;
+    uint8_t block_size = *self->cursor++;
+    char const *block_base = self->cursor;
 
     uint8_t code_size = min_code_size + 1;
-
-    struct cgif_dict_entry *dictionary = (struct cgif_dict_entry *)self->scratch;
-    unsigned int dictionary_count = 0;
-
-    uint8_t block_size = *self->cursor;
-    char const *block_base = ++self->cursor;
-    uint32_t chunk = *(uint16_t*)self->cursor;
-    uint8_t bits_remaining = 16;
-    unsigned int output_index = 0;
-    unsigned int previous_output_index = 0;
-    uint32_t bitmask = (uint32_t)-1 >> (32 - code_size);
     uint8_t clear_code = 1 << min_code_size;
     uint8_t stop_code = clear_code + 1;
+
+    uint32_t chunk = 0;
+    uint8_t bits_remaining = 0;
+    uint32_t bitmask = (uint32_t)-1 >> (32 - code_size);
+
+    unsigned int output_index = 0;
+    unsigned int previous_output_index = 0;
+    unsigned int output_size;
     while((void*)self->cursor - (void*)block_base < block_size) {
-        /*
-         * Expand the chunk if empty
-         */
+        // Expand chunk if empty
         if(bits_remaining < code_size) {
-            self->cursor += 2;
             uint16_t next_chunk = *(uint16_t*)self->cursor;
             chunk |= (((uint32_t)next_chunk) << bits_remaining);
             bits_remaining += 16;
+            self->cursor += 2;
         }
 
-        /*
-         * Read Code
-         */
+        // Read incoming code
         uint16_t code = chunk & bitmask;
 
-        /*
-         * Discard used bits
-         */
+        // Discard used bits
         chunk >>= code_size;
         bits_remaining -= code_size;
 
-        /*
-         * Decode incoming code
-         */
-        uint8_t output_size = 0;
+        // Decode incoming code
         if(code == clear_code) {
-            dictionary_count = 0;
+            self->dict_count = 0;
             code_size = min_code_size + 1;
             bitmask = (uint32_t)-1 >> (32 - code_size);
             continue;
         } else if(code == stop_code) {
             break;
         } else if(code <= color_table_count) { // Code in color table
-            memcpy(&buffer[output_index], &color_table[code], sizeof(struct cgif_rgb));
+            memcpy(&buffer[output_index], &color_table[code], sizeof(struct cgif_render_rgb));
             output_size = 1;
         } else {
             code -= stop_code + 1;
 
-            /*
-             * Preempted dictionary entry
-             */
-            if(dictionary_count - code == 1) {
-                memcpy(&buffer[output_index], &buffer[previous_output_index], sizeof(struct cgif_rgb));
+            // Preempted dictionary entry
+            if(self->dict_count - code == 1) {
+                memcpy(&buffer[output_index], &buffer[previous_output_index], sizeof(struct cgif_render_rgb));
             }
 
-            memcpy(&buffer[output_index], &buffer[dictionary[code].index], sizeof(struct cgif_rgb) * dictionary[code].count);
-            output_size = dictionary[code].count;
+            memcpy(&buffer[output_index], &buffer[self->dictionary[code].index], sizeof(struct cgif_render_rgb) * self->dictionary[code].count);
+            output_size = self->dictionary[code].count;
         }
 
-        /*
-         * Make dictionary entry
-         */
-        if(stop_code + dictionary_count + 1 > bitmask) {
+        // Make new dictionary entry
+        if(stop_code + self->dict_count + 1 > bitmask) {
             code_size++;
             bitmask = (uint32_t)-1 >> (32 - code_size);
         }
 
-        dictionary[dictionary_count].index = output_index;
-        dictionary[dictionary_count].count = output_size + 1;
-        dictionary_count++;
+        self->dictionary[self->dict_count].index = output_index;
+        self->dictionary[self->dict_count].count = output_size + 1;
+        self->dict_count++;
+
+        if(self->dict_count * sizeof(struct cgif_dict_entry) >= self->dict_size) {
+            return CGIF_ERROR_DICTOVERFLOW;
+        }
 
         previous_output_index = output_index;
         output_index += output_size;

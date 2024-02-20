@@ -8,11 +8,14 @@ typedef enum {
     CGIF_SUCCESS = 0,
 
     CGIF_ERROR_NOGIF,
-    CGIF_ERROR_NOBUF,
-    CGIF_ERROR_BUFSIZE,
+    CGIF_ERROR_NODICT,
+    CGIF_ERROR_DICTSIZE,
+    CGIF_ERROR_DICTOVERFLOW,
     CGIF_ERROR_UNEXPCHAR,
     CGIF_ERROR_EOF,
     CGIF_ERROR_NOEXT,
+    CGIF_ERROR_BUFSIZE,
+    CGIF_ERROR_BUFOVERFLOW,
 } cgif_error_t;
 
 typedef enum {
@@ -46,6 +49,14 @@ struct __attribute__((packed)) cgif_lsd
     uint8_t pixel_aspect;
 };
 
+struct cgif_render_rgb
+{
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+    uint8_t _pad;
+};
+
 struct __attribute__((packed)) cgif_rgb
 {
     uint8_t red;
@@ -71,6 +82,8 @@ struct __attribute__((packed)) cgif_dict_entry
     uint16_t index;
 };
 
+#define CGIF_DICT_COUNT_MAX(w, h) (w * h)
+
 struct cgif
 {
     union
@@ -82,14 +95,15 @@ struct cgif
     struct cgif_lsd const *lsd;
     struct cgif_rgb const *gct;
 
-    char *scratch;
-    size_t scratch_size;
+    struct cgif_dict_entry *dictionary;
+    size_t dict_count;
+    size_t dict_size;
 
     char const *cursor;
 };
 
-cgif_error_t cgif_init(struct cgif *self, char const *data, char *scratch, size_t scratch_size);
-cgif_error_t cgif_render_next(struct cgif *self, struct cgif_rgb *buffer, size_t buffer_size);
+cgif_error_t cgif_init(struct cgif *self, char const *data, struct cgif_dict_entry *dictionary, size_t dict_size);
+cgif_error_t cgif_render_next(struct cgif *self, struct cgif_render_rgb *buffer, size_t buffer_size);
 
 inline bool cgif_gct_enable(struct cgif *self);
 inline uint8_t cgif_gct_resolution(struct cgif *self);
