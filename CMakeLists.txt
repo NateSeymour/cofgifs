@@ -4,6 +4,7 @@ project(cofgifs C)
 set(CMAKE_C_STANDARD 99)
 
 add_library(cofgifs STATIC src/cofgifs.c src/cofgifs.h)
+target_include_directories(cofgifs PUBLIC src)
 
 add_executable(cofgifs_test test/basic.c)
 target_link_libraries(cofgifs_test PUBLIC cofgifs)
